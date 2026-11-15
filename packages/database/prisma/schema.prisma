@@ -1,0 +1,218 @@
+// PulseWatch database schema.
+//
+// Design rationale: docs/database.md. Two kinds of rule cannot be expressed
+// in this file and live as hand-written SQL in the init migration instead:
+//   - CHECK constraints (HTTPS-only URL, interval bounds, result shape, ...)
+//   - partial indexes (one open incident per monitor, due monitors, ...)
+// `pnpm db:check-drift` verifies this file and the migrations still agree.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  // Emit `./x.js` import specifiers so the generated code compiles under
+  // TypeScript's NodeNext module resolution like the rest of the repo.
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MonitorStatus {
+  PENDING
+  UP
+  DOWN
+
+  @@map("monitor_status")
+}
+
+enum HttpMethod {
+  GET
+  HEAD
+
+  @@map("http_method")
+}
+
+enum CheckErrorType {
+  TIMEOUT
+  DNS
+  CONNECTION
+  TLS
+  BLOCKED_ADDRESS
+  HTTP_STATUS
+  RESPONSE_TOO_LARGE
+  UNKNOWN
+
+  @@map("check_error_type")
+}
+
+enum NotificationEvent {
+  INCIDENT_OPENED
+  INCIDENT_RESOLVED
+
+  @@map("notification_event")
+}
+
+enum NotificationChannel {
+  EMAIL
+
+  @@map("notification_channel")
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+
+  @@map("delivery_status")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Always stored lower-case (enforced by a CHECK constraint).
+  email        String   @unique
+  /// Argon2id encoded hash. Never selected into API responses.
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  monitors             Monitor[]
+  refreshTokens        RefreshToken[]
+  notificationSettings NotificationSettings?
+
+  @@map("users")
+}
+
+/// One row per issued refresh token (ADR-004).
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  /// Tokens descended from one login share a family; re-use revokes them all.
+  familyId  String    @map("family_id") @db.Uuid
+  /// SHA-256 of the token. The raw token exists only in the user's cookie.
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model Monitor {
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String     @map("user_id") @db.Uuid
+  name              String
+  url               String
+  method            HttpMethod @default(GET)
+  intervalSeconds   Int        @default(60) @map("interval_seconds")
+  timeoutMs         Int        @default(10000) @map("timeout_ms")
+  failureThreshold  Int        @default(3) @map("failure_threshold")
+  recoveryThreshold Int        @default(2) @map("recovery_threshold")
+  paused            Boolean    @default(false)
+
+  // Current state, updated by the worker in the same transaction that records
+  // each check (ADR-007).
+  status               MonitorStatus @default(PENDING)
+  consecutiveFailures  Int           @default(0) @map("consecutive_failures")
+  consecutiveSuccesses Int           @default(0) @map("consecutive_successes")
+  lastCheckedAt        DateTime?     @map("last_checked_at") @db.Timestamptz(3)
+
+  /// The next slot this monitor is due (ADR-002).
+  nextCheckAt DateTime @map("next_check_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkResults CheckResult[]
+  incidents    Incident[]
+
+  // "List my monitors, newest first."
+  @@index([userId, createdAt(sort: Desc)])
+  // The scheduler's partial index (WHERE paused = false) is in the migration.
+  @@map("monitors")
+}
+
+/// Append-only and by far the largest table.
+model CheckResult {
+  id             BigInt          @id @default(autoincrement())
+  monitorId      String          @map("monitor_id") @db.Uuid
+  /// The schedule slot this check belongs to: the idempotency key (ADR-003).
+  scheduledFor   DateTime        @map("scheduled_for") @db.Timestamptz(3)
+  /// When the request actually started. checkedAt - scheduledFor = queue lag.
+  checkedAt      DateTime        @map("checked_at") @db.Timestamptz(3)
+  success        Boolean
+  statusCode     Int?            @map("status_code")
+  responseTimeMs Int?            @map("response_time_ms")
+  errorType      CheckErrorType? @map("error_type")
+  errorMessage   String?         @map("error_message")
+
+  monitor Monitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  // One result per monitor per slot. Also serves history and analytics range
+  // scans, so the hot table carries a single B-tree besides its primary key.
+  @@unique([monitorId, scheduledFor])
+  // Retention deletes by time; rows arrive in time order, so BRIN is enough.
+  @@index([scheduledFor], type: Brin)
+  @@map("check_results")
+}
+
+model Incident {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  monitorId       String         @map("monitor_id") @db.Uuid
+  /// Slot of the first failed check in the streak.
+  startedAt       DateTime       @map("started_at") @db.Timestamptz(3)
+  resolvedAt      DateTime?      @map("resolved_at") @db.Timestamptz(3)
+  causeErrorType  CheckErrorType @map("cause_error_type")
+  causeStatusCode Int?           @map("cause_status_code")
+  causeMessage    String?        @map("cause_message")
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  monitor    Monitor                @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  // "Incident history for this monitor, newest first."
+  @@index([monitorId, startedAt(sort: Desc)])
+  // The "one open incident per monitor" partial unique index is in the migration.
+  @@map("incidents")
+}
+
+/// Exactly one row per user: the primary key is the foreign key.
+model NotificationSettings {
+  userId           String   @id @map("user_id") @db.Uuid
+  emailEnabled     Boolean  @default(false) @map("email_enabled")
+  /// NULL means "use the account email".
+  emailAddress     String?  @map("email_address")
+  notifyOnDown     Boolean  @default(true) @map("notify_on_down")
+  notifyOnRecovery Boolean  @default(true) @map("notify_on_recovery")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_settings")
+}
+
+/// Transactional outbox and audit log for alerts (ADR-008).
+model NotificationDelivery {
+  id         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  incidentId String              @map("incident_id") @db.Uuid
+  event      NotificationEvent
+  channel    NotificationChannel
+  recipient  String
+  status     DeliveryStatus      @default(PENDING)
+  attempts   Int                 @default(0)
+  lastError  String?             @map("last_error")
+  sentAt     DateTime?           @map("sent_at") @db.Timestamptz(3)
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  // One notification per incident, per event, per channel.
+  @@unique([incidentId, event, channel])
+  // The sender's partial index (WHERE status = 'PENDING') is in the migration.
+  @@map("notification_deliveries")
+}
