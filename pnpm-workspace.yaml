@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm does not run dependency install scripts unless they are listed here
+# (supply-chain hardening). Each entry is a package that genuinely needs one.
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - prisma
+  - esbuild
+
+# Optional native speed-ups pulled in by Testcontainers; it works without them.
+ignoredBuiltDependencies:
+  - cpu-features
+  - ssh2
