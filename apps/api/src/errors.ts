@@ -7,6 +7,7 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "UNAUTHENTICATED"
   | "INVALID_CREDENTIALS"
+  | "FORBIDDEN"
   | "NOT_FOUND"
   | "CONFLICT"
   | "PAYLOAD_TOO_LARGE"

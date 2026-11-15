@@ -28,6 +28,7 @@ supersedes the old one and says why.
 | 016 | One Zod schema drives validation, serialisation and OpenAPI | Accepted | Proposed by Claude |
 | 017 | Central error handler; unknown errors are hidden by default | Accepted | Brief              |
 | 018 | Separate liveness and readiness probes                      | Accepted | Proposed by Claude |
+| 019 | Auth implementation: libraries, same-origin, known gaps     | Accepted | Proposed by Claude |
 
 "Proposed by Claude" entries were chosen without asking because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
@@ -644,3 +645,64 @@ removes the instance from the load balancer until the dependency returns.
 
 **Interview question.** _"What should a health check check?"_ Liveness: only
 the process itself. Readiness: the dependencies needed to serve a request.
+
+---
+
+## ADR-019: Auth implementation: libraries, same-origin, known gaps
+
+This records how ADR-004 was implemented and, just as importantly, what it
+does not yet cover.
+
+**Libraries.**
+
+| Need             | Choice            | Why                                                                                          |
+| ---------------- | ----------------- | -------------------------------------------------------------------------------------------- |
+| Password hashing | `@node-rs/argon2` | Argon2id with prebuilt binaries, so there is no compiler toolchain or install script to run. |
+| JWT              | `jose`            | No dependencies; the verifier is called with an explicit algorithm allow-list.               |
+| Cookies          | `@fastify/cookie` | The official Fastify plugin.                                                                 |
+
+Argon2id runs with OWASP's minimum parameters (19 MiB, 2 passes, 1 lane). They
+are encoded in each hash, so they can be raised later without a migration.
+
+**No CORS, by design.** The web app and the API are served from one origin (a
+dev-server proxy locally, a reverse proxy in production). With no cross-origin
+browser access there is nothing for CORS to permit, so it is not enabled at
+all, which is safer than a permissive configuration. State-changing requests
+carrying an `Origin` other than `APP_ORIGIN` are refused with `403`, as a
+second CSRF layer behind `SameSite` cookies.
+
+**Layering.** `auth/service.ts` holds the rules and knows nothing about HTTP;
+`auth/routes.ts` only translates between HTTP and the service; `app.ts` is the
+composition root that constructs both. The clock is injected, so expiry tests
+move time forward instead of sleeping.
+
+**Concurrency decisions.**
+
+- _Registration_ relies on the unique constraint rather than "check, then
+  insert", because two simultaneous requests would both pass a check. A test
+  registers the same email twice in parallel and asserts one `201`, one `409`.
+- _Refresh_ claims the token with a conditional update (`WHERE revoked_at IS
+NULL`), so the database admits one of two simultaneous refreshes.
+
+**Trade-off accepted: refresh races log the user out.** If two browser tabs
+refresh with the same token at the same instant, the loser looks exactly like
+token theft, and the whole session is revoked. Some systems add a few seconds
+of grace for the previous token. That weakens theft detection, so instead the
+web client will share a single in-flight refresh across tabs (Phase 5).
+
+**Known gaps (deliberate, tracked).**
+
+| Gap                                                | Why it exists                                       | Planned   |
+| -------------------------------------------------- | --------------------------------------------------- | --------- |
+| No rate limiting on login or register              | Needs Redis, which arrives with the worker          | 4.3       |
+| Registration reveals whether an email is taken     | Hiding it requires an email-verification flow       | Future    |
+| No email verification or password reset            | Needs outbound email                                | Future    |
+| Access token stays valid up to 15 min after logout | The cost of verifying tokens without a database hit | By design |
+| Expired refresh-token rows are never deleted       | Needs a scheduled job                               | 4.5       |
+
+Until rate limiting lands, login is open to online password guessing, slowed
+only by the cost of Argon2. This must be closed before any public deployment.
+
+**Interview question.** _"What are the weaknesses of your auth system?"_ The
+table above. Being able to list them, with the reason and the plan for each,
+is a stronger answer than claiming there are none.

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { buildApp } from "../src/app.js";
 import { notFound } from "../src/errors.js";
 import { dataEnvelope, type ErrorResponse } from "../src/http/schemas.js";
+import { testConfig } from "./helpers.js";
 
 /**
  * Requests are sent with Fastify's `inject()`: they go through the real
@@ -57,7 +58,7 @@ function registerProbeRoutes(instance: FastifyInstance): void {
 beforeAll(async () => {
   db = createDatabaseClient({ connectionString: inject("databaseUrl") });
   app = await buildApp({
-    config: { logLevel: "info", docsEnabled: true },
+    config: testConfig({ logLevel: "info" }),
     db,
     logDestination: { write: (line) => logLines.push(line) },
   });
@@ -95,7 +96,7 @@ describe("health", () => {
       connectionString: "postgresql://admin:hunter2@127.0.0.1:1/internal",
     });
     const isolated = await buildApp({
-      config: { logLevel: "silent", docsEnabled: false },
+      config: testConfig({ docsEnabled: false }),
       db: deadDb,
     });
 
@@ -251,7 +252,7 @@ describe("OpenAPI", () => {
   });
 
   it("is not served when docs are disabled", async () => {
-    const isolated = await buildApp({ config: { logLevel: "silent", docsEnabled: false }, db });
+    const isolated = await buildApp({ config: testConfig({ docsEnabled: false }), db });
 
     try {
       const response = await isolated.inject({ method: "GET", url: "/docs/json" });

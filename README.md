@@ -4,11 +4,11 @@ An API monitoring platform: it checks HTTPS endpoints on a schedule, records
 status and latency, detects outages and recoveries, and shows the history on a
 dashboard.
 
-> **Project status: Phase 2 of 6 in progress.** The monorepo tooling, the
-> database layer and the API skeleton (configuration, logging, error handling,
-> health probes, OpenAPI) exist and are tested. Authentication, monitor
-> endpoints, the worker and the UI do not exist yet. This README grows with the
-> project and only describes what has actually been built and verified.
+> **Project status: Phase 2 of 6 in progress.** The database layer, the API
+> skeleton and authentication (register, login, refresh-token rotation,
+> logout) exist and are tested. Monitor endpoints, the worker and the UI do not
+> exist yet. This README grows with the project and only describes what has
+> actually been built and verified.
 
 | Phase | Scope                                                | Status      |
 | ----- | ---------------------------------------------------- | ----------- |
@@ -75,8 +75,9 @@ a deeply nested folder, which makes tools fail to start with misleading errors.
 
 ## Running the API
 
-Copy `.env.example` to `.env`, set `DATABASE_URL` to a PostgreSQL 16 database,
-then apply the migrations and start the server:
+Copy `.env.example` to `.env`, set `DATABASE_URL` to a PostgreSQL 16 database
+and `JWT_ACCESS_SECRET` to a random value of at least 32 characters
+(`openssl rand -base64 48`), then apply the migrations and start the server:
 
 ```bash
 pnpm db:migrate:deploy

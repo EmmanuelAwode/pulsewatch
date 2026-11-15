@@ -19,7 +19,7 @@ made or changed, and a pause for review.
 
 ## Phase 2: Backend foundation
 
-Progress: **2.1, 2.2 and 2.3 done** (2026-11-15); 2.4 and 2.5 not started.
+Progress: **2.1 to 2.4 done** (2026-11-15); 2.5 not started.
 
 | #   | Milestone                                                                                     | Done when                                                                            |
 | --- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
