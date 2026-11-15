@@ -13,7 +13,7 @@ declare module "fastify" {
 export type AuthGuard = (request: FastifyRequest) => Promise<void>;
 
 /**
- * Returns a `preHandler` that rejects unauthenticated requests and records
+ * Returns an `onRequest` hook that rejects unauthenticated requests and records
  * who the caller is.
  *
  * It verifies the access token's signature and expiry and nothing else: no

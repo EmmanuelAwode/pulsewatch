@@ -120,7 +120,7 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRouteOptions> = async (app, o
   app.get(
     "/me",
     {
-      preHandler: requireAuth,
+      onRequest: requireAuth,
       schema: {
         tags: TAGS,
         summary: "The authenticated user",

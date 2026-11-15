@@ -16,6 +16,8 @@ import { createTokenService } from "./auth/tokens.js";
 import type { Config } from "./config.js";
 import { registerErrorHandling } from "./http/error-handler.js";
 import { registerOriginCheck } from "./http/origin-check.js";
+import { monitorRoutes } from "./monitors/routes.js";
+import { createMonitorService } from "./monitors/service.js";
 import { healthRoutes } from "./routes/health.js";
 
 export interface AppDependencies {
@@ -25,6 +27,8 @@ export interface AppDependencies {
   logDestination?: { write: (line: string) => void };
   /** The clock. Defaults to the system clock; tests move it to check expiry. */
   now?: () => Date;
+  /** Overrides the per-user monitor limit; tests use a small number. */
+  maxMonitorsPerUser?: number;
 }
 
 /**
@@ -88,6 +92,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
       },
       tags: [
         { name: "auth", description: "Accounts and sessions" },
+        { name: "monitors", description: "Endpoints to watch" },
         { name: "operations", description: "Health and readiness probes" },
       ],
     },
@@ -110,6 +115,13 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     now,
   });
   const requireAuth = createAuthGuard(tokens);
+  const monitors = createMonitorService({
+    db,
+    now,
+    ...(deps.maxMonitorsPerUser === undefined
+      ? {}
+      : { maxMonitorsPerUser: deps.maxMonitorsPerUser }),
+  });
 
   await app.register(healthRoutes, { db });
   await app.register(authRoutes, {
@@ -118,6 +130,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     requireAuth,
     config: config.auth,
   });
+  await app.register(monitorRoutes, { prefix: "/api/v1/monitors", monitors, requireAuth });
 
   return app;
 }

@@ -29,6 +29,7 @@ supersedes the old one and says why.
 | 017 | Central error handler; unknown errors are hidden by default | Accepted | Brief              |
 | 018 | Separate liveness and readiness probes                      | Accepted | Proposed by Claude |
 | 019 | Auth implementation: libraries, same-origin, known gaps     | Accepted | Proposed by Claude |
+| 020 | Ownership in every query; auth before validation            | Accepted | Brief              |
 
 "Proposed by Claude" entries were chosen without asking because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
@@ -706,3 +707,58 @@ only by the cost of Argon2. This must be closed before any public deployment.
 **Interview question.** _"What are the weaknesses of your auth system?"_ The
 table above. Being able to list them, with the reason and the plan for each,
 is a stronger answer than claiming there are none.
+
+---
+
+## ADR-020: Ownership in every query; auth before validation
+
+**Problem.** Every monitor belongs to one user. The most common serious bug in
+APIs like this is "insecure direct object reference": the server checks that
+the caller is logged in, but not that the object they named is theirs.
+
+**Options.**
+
+1. _Load the row, then compare `row.userId` with the caller._ Works, but it is
+   a separate step that each new endpoint has to remember.
+2. _Put the owner in the query itself_ (chosen): `WHERE id = $1 AND user_id =
+$2`. A row belonging to someone else is simply not returned.
+3. _PostgreSQL row-level security._ The strongest option, since the database
+   enforces it whatever the application does. It needs a per-request database
+   role or session variable, which complicates connection pooling.
+
+**Decision.** Option 2. Every `MonitorService` method takes `userId` as its
+first argument and the guard is the only source of that value (the verified
+token, never the URL or body). The response for "not yours" is `404`, and a
+test asserts it is identical to the response for an ID that does not exist,
+so the API cannot be used to discover which IDs are real.
+
+Three related decisions made while building this:
+
+- **Authentication runs at `onRequest`, not `preHandler`.** Found by a failing
+  test: an anonymous `POST` with an invalid body received `422` rather than
+  `401`. Fastify validates the body before `preHandler` hooks run, so an
+  unauthenticated caller was being told what was wrong with their request.
+  Moving the guard to the first lifecycle stage fixed it.
+- **The per-user limit is enforced under a row lock.** "Count, then insert" is
+  a race: two requests can both count 49. Creation runs in a transaction that
+  first takes `SELECT ... FOR UPDATE` on the user's row, so concurrent
+  creations for one user queue up. A test fires eight at once against a limit
+  of three and asserts exactly three succeed.
+- **Mass assignment is impossible by construction.** Request schemas list the
+  fields a client may set; anything else (`userId`, `status`) is dropped
+  before the handler sees it. Tests send those fields and assert they have no
+  effect.
+
+**URL validation here is only the first SSRF layer.** The API rejects
+non-HTTPS URLs, embedded credentials and non-default ports. It does not, and
+cannot, know what a hostname resolves to. `https://internal.example.com`
+passes this check; stopping it is the worker's job in Phase 3 (ADR-009).
+
+**At larger scale.** Row-level security becomes worth its cost once several
+services or ad-hoc queries touch the same tables, because application-level
+filtering only protects the code paths that remember to apply it.
+
+**Interview question.** _"How do you make sure users can't see each other's
+data?"_ The owner is part of every query, taken from the verified token, and
+a test suite attacks each endpoint as a second user and asserts a 404 that is
+indistinguishable from a missing record.

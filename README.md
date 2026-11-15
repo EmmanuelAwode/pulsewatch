@@ -4,16 +4,16 @@ An API monitoring platform: it checks HTTPS endpoints on a schedule, records
 status and latency, detects outages and recoveries, and shows the history on a
 dashboard.
 
-> **Project status: Phase 2 of 6 in progress.** The database layer, the API
-> skeleton and authentication (register, login, refresh-token rotation,
-> logout) exist and are tested. Monitor endpoints, the worker and the UI do not
-> exist yet. This README grows with the project and only describes what has
-> actually been built and verified.
+> **Project status: Phase 2 of 6 complete.** The database layer and the REST
+> API (authentication and monitor management) exist and are tested. Nothing
+> checks the monitored endpoints yet: the worker, incident detection and the
+> UI are later phases. This README grows with the project and only describes
+> what has actually been built and verified.
 
 | Phase | Scope                                                | Status      |
 | ----- | ---------------------------------------------------- | ----------- |
 | 1     | Architecture, schema design, API design, decisions   | Done        |
-| 2     | Backend foundation: Fastify, Prisma, auth, CRUD      | In progress |
+| 2     | Backend foundation: Fastify, Prisma, auth, CRUD      | Done        |
 | 3     | Monitoring engine: scheduler, workers, SSRF guard    | Not started |
 | 4     | Reliability: incidents, alerts, rate limits, metrics | Not started |
 | 5     | React dashboard                                      | Not started |

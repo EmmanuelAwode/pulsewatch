@@ -17,9 +17,9 @@ made or changed, and a pause for review.
 | 1.3 | API specification                                    | `docs/api.md`                               |
 | 1.4 | Decision log started                                 | `ENGINEERING_DECISIONS.md` (ADR-001 to 012) |
 
-## Phase 2: Backend foundation
+## Phase 2: Backend foundation (done)
 
-Progress: **2.1 to 2.4 done** (2026-11-15); 2.5 not started.
+Progress: **all five milestones done** (2026-11-15).
 
 | #   | Milestone                                                                                     | Done when                                                                            |
 | --- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
