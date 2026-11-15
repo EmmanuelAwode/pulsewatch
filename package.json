@@ -17,10 +17,13 @@
     "format:check": "prettier --check .",
     "test": "pnpm build:packages && pnpm -r run test",
     "dev:api": "pnpm build:packages && pnpm --filter @pulsewatch/api run dev",
+    "dev:worker": "pnpm build:packages && pnpm --filter @pulsewatch/worker run dev",
     "db:generate": "pnpm --filter @pulsewatch/database run generate",
     "db:migrate:dev": "pnpm --filter @pulsewatch/database run migrate:dev",
     "db:migrate:deploy": "pnpm --filter @pulsewatch/database run migrate:deploy",
-    "db:check-drift": "pnpm --filter @pulsewatch/database run check-drift"
+    "db:check-drift": "pnpm --filter @pulsewatch/database run check-drift",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

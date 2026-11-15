@@ -31,6 +31,7 @@ supersedes the old one and says why.
 | 019 | Auth implementation: libraries, same-origin, known gaps     | Accepted | Proposed by Claude |
 | 020 | Ownership in every query; auth before validation            | Accepted | Brief              |
 | 021 | Prober: pin the checked IP, time to headers, no body        | Accepted | Proposed by Claude |
+| 022 | Scheduler and processor: implementation and verification    | Accepted | Proposed by Claude |
 
 "Proposed by Claude" entries were chosen without asking because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
@@ -839,3 +840,85 @@ elsewhere, or a dependency making its own requests, bypasses it entirely.
 attacker's DNS answers the validation lookup with a public IP and the
 connection lookup with an internal one. Prevent it by resolving once and
 connecting to the address you validated, not to the name.
+
+---
+
+## ADR-022: Scheduler and processor: implementation and verification
+
+This records how ADR-002, ADR-003 and part of ADR-007 were built in
+`apps/worker/src/checks/`.
+
+**The path of one check.**
+
+1. `scheduler.ts` claims due monitors with `SELECT ... FOR UPDATE SKIP LOCKED`,
+   enqueues a job per monitor, then advances `next_check_at`, all in one
+   transaction.
+2. `queue.ts` adds the jobs to BullMQ with the ID `check_{monitorId}_{slotMs}`.
+3. `processor.ts` probes the endpoint, then in one transaction: locks the
+   monitor row, inserts the result with `ON CONFLICT DO NOTHING`, and updates
+   the counters only if this attempt inserted the row.
+
+**Decisions made while building it.**
+
+- _Slots stay on each monitor's own grid._ After downtime the scheduler jumps
+  to the most recent slot rather than back-filling, computed from the
+  monitor's `next_check_at` rather than from the wall clock, so the jitter
+  applied at creation is preserved.
+- _The HTTP request is outside the transaction._ A check can take 30 seconds;
+  holding a transaction and row lock that long would exhaust the connection
+  pool. Only the short "store the result" step is transactional.
+- _A late result does not rewind state._ Jobs can finish out of order. A
+  result for an older slot is kept in the history but does not touch the
+  counters if a newer slot has already been recorded.
+- _A cheap pre-check avoids re-probing on retry._ If the slot already has a
+  result, the endpoint is not contacted again. This is an optimisation; the
+  unique constraint is what guarantees correctness.
+- _One process runs both roles._ The scheduler and the processors scale
+  independently if needed, since both are safe to run as several copies.
+- _BullMQ 6 needs its Redis client supplied._ `ioredis` is a peer dependency
+  now, not bundled, so it is a direct dependency of the worker.
+
+**Two meanings of "retry", kept apart.**
+
+|             | Configured where                                 | Triggered by               | Effect on recorded checks                     |
+| ----------- | ------------------------------------------------ | -------------------------- | --------------------------------------------- |
+| Job retry   | BullMQ: 5 attempts, exponential backoff from 1 s | Our infrastructure failing | None: at most one row per slot                |
+| Check retry | Nowhere. There isn't one.                        | n/a                        | A down endpoint is one failed result per slot |
+
+**How the concurrency controls were verified.** The 131 tests passed on the
+first run, so each control was removed in turn to see whether a test noticed.
+
+| Control removed                               | First result     | After adding a targeted test |
+| --------------------------------------------- | ---------------- | ---------------------------- |
+| Scheduler row lock (`FOR UPDATE SKIP LOCKED`) | Caught           | n/a                          |
+| Processor "already stored" handling           | Caught (3 tests) | n/a                          |
+| `SKIP LOCKED` only (plain `FOR UPDATE`)       | **Not caught**   | Caught                       |
+| Processor's lock on the monitor row           | **Not caught**   | Caught                       |
+
+Two protections were therefore unproven until new tests were written:
+
+- _`SKIP LOCKED`_ is a liveness property, not a correctness one. Without it
+  schedulers still never double-enqueue; they queue up behind each other. The
+  new test holds one scheduler mid-transaction and asserts a second one
+  returns immediately with a different monitor.
+- _The monitor row lock_ prevents an older result's counter update landing
+  after a newer one's. The new test stores an old failure and a new success
+  simultaneously, 40 times, and asserts the monitor always reflects the
+  newer. It is timing-dependent: it cannot fail on correct code, but in
+  principle it could miss the bug on a given run. It failed on the first run
+  with the lock removed.
+
+**Observed end to end.** The built worker process ran against the Compose
+PostgreSQL and Redis with four real monitors. Each was checked exactly once:
+a public site (`200`), a redirect (`301`, not followed), the cloud metadata
+address (`BLOCKED_ADDRESS`) and a self-signed certificate (`TLS`). Each
+monitor's counter moved by one and its next check was scheduled.
+
+**Not built yet.** Status transitions and incidents (Phase 4): `status` stays
+`PENDING` and only the counters move. `/readyz` does not check Redis, because
+the API does not use Redis until rate limiting arrives.
+
+**Interview question.** _"How do you know your concurrency code works?"_
+Passing tests were not enough. I removed each lock and constraint in turn;
+two removals went unnoticed, which showed two guarantees were untested, so I
+wrote tests that fail without them.

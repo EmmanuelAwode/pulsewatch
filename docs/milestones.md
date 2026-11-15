@@ -29,9 +29,9 @@ Progress: **all five milestones done** (2026-11-15).
 | 2.4 | Authentication: register, login, refresh rotation, logout, `me`                               | Tests include token re-use revoking the family, and no user enumeration.             |
 | 2.5 | Monitor CRUD with ownership checks                                                            | Tests prove user A gets `404` on user B's monitor for every verb.                    |
 
-## Phase 3: Monitoring engine
+## Phase 3: Monitoring engine (done)
 
-Progress: **3.1 and 3.2 done** (2026-11-15); 3.3 and 3.4 need Redis and are not started.
+Progress: **all four milestones done** (2026-11-15).
 
 | #   | Milestone                                                      | Done when                                                                |
 | --- | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -69,11 +69,3 @@ Progress: **3.1 and 3.2 done** (2026-11-15); 3.3 and 3.4 need Redis and are not 
 | 6.3 | k6 load tests; results recorded with the hardware and method used |
 | 6.4 | Deployment guide, network-level SSRF controls, operations runbook |
 | 6.5 | README with screenshots and measured results                      |
-
-## Prerequisite before Phase 2
-
-Docker is **not installed** on the development machine (only a leftover WSL
-distribution was found). Docker Desktop is needed for Docker Compose, and for
-Testcontainers to start PostgreSQL and Redis during integration tests. Until
-then, database tests can run against the locally installed PostgreSQL 16, but
-there is no local Redis, which Phase 3 requires.

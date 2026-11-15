@@ -4,18 +4,18 @@ An API monitoring platform: it checks HTTPS endpoints on a schedule, records
 status and latency, detects outages and recoveries, and shows the history on a
 dashboard.
 
-> **Project status: Phase 3 of 6 in progress.** The database layer, the REST
-> API (authentication and monitor management) and the HTTPS prober with its
-> SSRF guard exist and are tested. Nothing runs checks on a schedule yet: the
-> scheduler, queue, incident detection and UI are still to come. This README
-> grows with the project and only describes what has actually been built and
+> **Project status: Phase 3 of 6 complete.** The REST API and the monitoring
+> engine exist and are tested: monitors are checked on schedule over HTTPS and
+> every result is stored. Status changes, incidents, alerts and the UI do not
+> exist yet, so a monitor's status stays PENDING for now. This README grows
+> with the project and only describes what has actually been built and
 > verified.
 
 | Phase | Scope                                                | Status      |
 | ----- | ---------------------------------------------------- | ----------- |
 | 1     | Architecture, schema design, API design, decisions   | Done        |
 | 2     | Backend foundation: Fastify, Prisma, auth, CRUD      | Done        |
-| 3     | Monitoring engine: scheduler, workers, SSRF guard    | In progress |
+| 3     | Monitoring engine: scheduler, workers, SSRF guard    | Done        |
 | 4     | Reliability: incidents, alerts, rate limits, metrics | Not started |
 | 5     | React dashboard                                      | Not started |
 | 6     | Testing, load tests, CI/CD, deployment               | Not started |
@@ -62,7 +62,7 @@ Postgres. Full detail in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Local setup
 
-Requirements: Node.js 24, and either Docker or a PostgreSQL 16 server.
+Requirements: Node.js 24 and Docker.
 
 ```bash
 corepack enable        # once per machine: puts pnpm on your PATH
@@ -74,15 +74,17 @@ On Windows, keep the project at a short path (for example `C:\dev\pulsewatch`).
 pnpm's nested `node_modules` layout can exceed the 260-character path limit in
 a deeply nested folder, which makes tools fail to start with misleading errors.
 
-## Running the API
+## Running it locally
 
-Copy `.env.example` to `.env`, set `DATABASE_URL` to a PostgreSQL 16 database
-and `JWT_ACCESS_SECRET` to a random value of at least 32 characters
-(`openssl rand -base64 48`), then apply the migrations and start the server:
+Start PostgreSQL and Redis, then copy `.env.example` to `.env` and set
+`JWT_ACCESS_SECRET` to a random value of at least 32 characters
+(`openssl rand -base64 48`). The other defaults match the Compose file.
 
 ```bash
+pnpm infra:up            # Postgres on 127.0.0.1:5433, Redis on 127.0.0.1:6379
 pnpm db:migrate:deploy
-pnpm dev:api
+pnpm dev:api             # in one terminal
+pnpm dev:worker          # in another
 ```
 
 | URL                             | What it is                                        |
@@ -91,7 +93,11 @@ pnpm dev:api
 | `http://127.0.0.1:3000/readyz`  | Readiness probe (checks the database)             |
 | `http://127.0.0.1:3000/docs`    | Interactive API documentation (not in production) |
 
-The server refuses to start if a required variable is missing or malformed
+Create a monitor through `/docs` and the worker checks it within a second or
+two, then again every interval. `pnpm infra:down` stops the containers; data
+is kept in named volumes.
+
+Both processes refuse to start if a required variable is missing or malformed
 and says which one.
 
 ## Running the checks
@@ -103,12 +109,13 @@ pnpm format:check
 pnpm test
 ```
 
-`pnpm test` includes integration tests that need a real PostgreSQL:
+`pnpm test` includes integration tests that need a real PostgreSQL and Redis:
 
-- **With Docker running**: nothing to configure. A throwaway
-  `postgres:16-alpine` container is started and removed automatically.
-- **Without Docker**: set `TEST_DATABASE_URL` to a server where the role may
-  `CREATE DATABASE`. Each run creates its own database and drops it afterwards.
+- **With Docker running**: nothing to configure. Throwaway containers are
+  started and removed automatically (Testcontainers).
+- **Against servers you already have running**: set `TEST_DATABASE_URL` (a
+  role that may `CREATE DATABASE`) and `TEST_REDIS_URL`. Each run creates
+  its own database and drops it afterwards, and uses uniquely named queues.
 
 To check that the Prisma schema and the migrations agree, point `DATABASE_URL`
 at a migrated database and run `pnpm db:check-drift`.

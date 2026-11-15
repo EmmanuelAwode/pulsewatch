@@ -1,0 +1,48 @@
+# Local development infrastructure: the two stateful services PulseWatch needs.
+# The api, worker and web containers are added in Phase 6.
+#
+#   pnpm infra:up      start both in the background
+#   pnpm infra:down    stop them (data is kept in named volumes)
+name: pulsewatch
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pulsewatch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulsewatch_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pulsewatch}
+    ports:
+      # Bound to loopback, so the dev database is never reachable from the
+      # local network. Host port 5433 avoids a Postgres already installed on
+      # the host, which normally owns 5432.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # noeviction: BullMQ requires it. With any other policy Redis may delete
+    #   queue keys under memory pressure, silently dropping jobs.
+    # appendonly: persist writes to disk so queued jobs survive a restart.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
