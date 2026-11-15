@@ -30,6 +30,7 @@ supersedes the old one and says why.
 | 018 | Separate liveness and readiness probes                      | Accepted | Proposed by Claude |
 | 019 | Auth implementation: libraries, same-origin, known gaps     | Accepted | Proposed by Claude |
 | 020 | Ownership in every query; auth before validation            | Accepted | Brief              |
+| 021 | Prober: pin the checked IP, time to headers, no body        | Accepted | Proposed by Claude |
 
 "Proposed by Claude" entries were chosen without asking because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
@@ -762,3 +763,79 @@ filtering only protects the code paths that remember to apply it.
 data?"_ The owner is part of every query, taken from the verified token, and
 a test suite attacks each endpoint as a second user and asserts a 404 that is
 indistinguishable from a missing record.
+
+---
+
+## ADR-021: Prober: pin the checked IP, time to headers, no body
+
+This records how ADR-009 was implemented in `apps/worker/src/probe/`.
+
+**Three small modules, each testable alone.**
+
+| Module              | Responsibility                                                               |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `address-policy.ts` | Given an IP address, is it ordinary public internet? Pure function.          |
+| `resolve.ts`        | Resolve a hostname once; refuse if any answer fails the policy.              |
+| `prober.ts`         | Make the HTTPS request to the pinned address, time it, classify the outcome. |
+
+**How pinning works.** Node's `https.request` accepts a `lookup` function,
+which it calls to turn the hostname into an address. The prober resolves and
+validates first, then supplies a `lookup` that returns only the validated
+address. The connection therefore goes to the IP that was checked, while TLS
+still verifies the certificate against the original hostname. There is no
+second DNS query for an attacker to answer differently.
+
+**Decisions inside that.**
+
+- _The policy takes an IP, never a URL._ Decimal (`2130706433`), hex
+  (`0x7f.1`) and short (`127.1`) spellings are all normalised by the URL
+  parser and the OS before the policy sees them, so there is one address
+  format to reason about instead of many.
+- _Block-list built from the IANA special-purpose registries_, including IPv6
+  forms that embed an IPv4 address (IPv4-mapped, NAT64, 6to4). These are the
+  usual way round a filter that only understands IPv4.
+- _If any resolved address is blocked, all are refused._ Stricter than
+  "use the first safe one", and it removes any dependence on which address
+  the connection logic would pick.
+- _A new connection per check_ (`agent: false`). A reused keep-alive socket
+  would skip the lookup and hide connect and TLS time from the measurement.
+- _Error messages are fixed strings chosen by us._ They are stored and shown
+  to the user; raw socket errors can contain internal addresses, which is the
+  information an SSRF attempt is fishing for.
+
+**What "response time" means.** Time from the start of the check (before DNS)
+until the response status line and headers arrive, measured with
+`process.hrtime.bigint()`. That is a monotonic clock: unlike `Date.now()` it
+cannot jump when the system clock is corrected, so a duration is always right.
+
+**The body is never downloaded.** Once headers arrive the connection is
+dropped. This makes the response-size limit trivially true (a test streams an
+endless body and the check still returns immediately), and it keeps a slow or
+huge body from occupying a worker.
+
+Trade-off accepted: an endpoint that sends healthy headers and then fails
+mid-body is reported as up. Body assertions are out of scope for the MVP.
+
+**Redirects count as failures.** A `301` is recorded as `HTTP_STATUS`, not
+followed. Observed on the real internet: `https://www.github.com/` reports
+`301`. Users must monitor the final URL; the UI should say so (Phase 5).
+Following redirects safely would mean re-validating every hop.
+
+**How the tests were checked.** All 99 worker tests passed on first run, which
+proves little for security code. So the guard was deliberately broken twice:
+
+| Change made on purpose                                   | Result                    |
+| -------------------------------------------------------- | ------------------------- |
+| Removed the policy check from resolution                 | 17 tests failed           |
+| Made the connection re-resolve the hostname (no pinning) | The rebinding test failed |
+
+Both were then reverted. A test suite that cannot fail is not evidence.
+
+**Limits of this layer.** It protects against requests the application makes
+knowingly. It does not replace network-level egress rules (Phase 6): a bug
+elsewhere, or a dependency making its own requests, bypasses it entirely.
+
+**Interview question.** _"Explain DNS rebinding and how you prevent it."_ The
+attacker's DNS answers the validation lookup with a public IP and the
+connection lookup with an internal one. Prevent it by resolving once and
+connecting to the address you validated, not to the name.

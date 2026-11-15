@@ -31,6 +31,8 @@ Progress: **all five milestones done** (2026-11-15).
 
 ## Phase 3: Monitoring engine
 
+Progress: **3.1 and 3.2 done** (2026-11-15); 3.3 and 3.4 need Redis and are not started.
+
 | #   | Milestone                                                      | Done when                                                                |
 | --- | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | 3.1 | HTTP prober: monotonic timing, timeout, size cap, no redirects | Tests against a local HTTPS test server for 200, 500, slow, oversized.   |
