@@ -384,6 +384,42 @@ describe("POST /auth/logout", () => {
   });
 });
 
+describe("body-less endpoints called the way a typical fetch wrapper calls them", () => {
+  // Many API clients set `Content-Type: application/json` on every request,
+  // including POSTs that carry no body. Found in a manual smoke test: this
+  // used to return 400 because the JSON parser rejected the empty body.
+  const jsonHeader = { "content-type": "application/json" };
+
+  it("logs out", async () => {
+    const { cookies } = await register();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/logout",
+      headers: jsonHeader,
+      cookies,
+      payload: "",
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect((await post("/api/v1/auth/refresh", undefined, cookies)).statusCode).toBe(401);
+  });
+
+  it("refreshes", async () => {
+    const { cookies } = await register();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/refresh",
+      headers: jsonHeader,
+      cookies,
+      payload: "",
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+});
+
 describe("cross-site request protection", () => {
   const credentials = { email: "a@example.com", password: PASSWORD };
 

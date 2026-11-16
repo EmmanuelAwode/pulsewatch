@@ -71,6 +71,28 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  // Fastify's JSON parser rejects an empty body with a 400, but many clients
+  // send `Content-Type: application/json` on every request, including POSTs
+  // such as /auth/logout that have no body. An empty body is treated as "no
+  // body"; anything else goes to Fastify's own parser, which keeps its
+  // prototype-poisoning protection ("error" = reject __proto__ and
+  // constructor.prototype keys outright). A route that does need a body still
+  // rejects the empty one, as a 422 from its schema.
+  const parseJson = app.getDefaultJsonParser("error", "error");
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    // With parseAs "string" the body is always a string at runtime; the
+    // declared type also allows a Buffer, so normalise rather than cast.
+    const text = typeof body === "string" ? body : body.toString("utf8");
+    if (text === "") {
+      done(null, undefined);
+      return;
+    }
+    // The default parser reports its result through `done`. Its declared
+    // type also permits a promise, which `void` makes explicit is unused.
+    void parseJson(request, text, done);
+  });
+
   registerErrorHandling(app);
   registerOriginCheck(app, config.auth.appOrigin);
 

@@ -144,6 +144,32 @@ describe("error handling", () => {
     expect(errorOf(response.body).code).toBe("BAD_REQUEST");
   });
 
+  it("refuses JSON that tries to set an object's prototype", async () => {
+    // Accepting empty bodies must not have switched off the default parser's
+    // prototype-poisoning protection.
+    const response = await app.inject({
+      method: "POST",
+      url: "/probe/validate",
+      headers: { "content-type": "application/json" },
+      payload: '{"name": "x", "intervalSeconds": 60, "__proto__": {"isAdmin": true}}',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(errorOf(response.body).code).toBe("BAD_REQUEST");
+  });
+
+  it("reports an empty JSON body on a route that needs one as a validation error", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/probe/validate",
+      headers: { "content-type": "application/json" },
+      payload: "",
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(errorOf(response.body).code).toBe("VALIDATION_ERROR");
+  });
+
   it("returns 422 with one detail per invalid field", async () => {
     const response = await app.inject({
       method: "POST",
