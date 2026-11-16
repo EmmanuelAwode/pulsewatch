@@ -8,36 +8,36 @@ supersedes the old one and says why.
 "Primer" refers to the
 [System Design Primer](https://github.com/donnemartin/system-design-primer).
 
-| #   | Decision                                                    | Status   | Decided by         |
-| --- | ----------------------------------------------------------- | -------- | ------------------ |
-| 001 | Modular monolith with a separate worker process             | Accepted | Brief              |
-| 002 | Postgres-driven scheduler                                   | Accepted | Owner              |
-| 003 | Slot-based idempotency; check failures are not job failures | Accepted | Derived from 002   |
-| 004 | Access JWT + rotating refresh token in httpOnly cookies     | Accepted | Owner              |
-| 005 | Single indexed `check_results` table + retention job        | Accepted | Owner              |
-| 006 | Server-Sent Events fed by Redis pub/sub                     | Accepted | Owner              |
-| 007 | Row lock + partial unique index for incident transitions    | Accepted | Proposed by Claude |
-| 008 | Transactional outbox for notifications                      | Accepted | Proposed by Claude |
-| 009 | SSRF defence at connection time, not URL-parse time         | Accepted | Brief              |
-| 010 | No application cache until measurements justify one         | Accepted | Proposed by Claude |
-| 011 | Uptime counts recorded checks only                          | Accepted | Proposed by Claude |
-| 012 | Toolchain versions                                          | Accepted | Proposed by Claude |
-| 013 | Pin every database session to UTC                           | Accepted | Forced by a bug    |
-| 014 | Hand-written SQL in migrations, guarded by a drift check    | Accepted | Proposed by Claude |
-| 015 | Integration tests use a real PostgreSQL, never a mock       | Accepted | Brief              |
-| 016 | One Zod schema drives validation, serialisation and OpenAPI | Accepted | Proposed by Claude |
-| 017 | Central error handler; unknown errors are hidden by default | Accepted | Brief              |
-| 018 | Separate liveness and readiness probes                      | Accepted | Proposed by Claude |
-| 019 | Auth implementation: libraries, same-origin, known gaps     | Accepted | Proposed by Claude |
-| 020 | Ownership in every query; auth before validation            | Accepted | Brief              |
-| 021 | Prober: pin the checked IP, time to headers, no body        | Accepted | Proposed by Claude |
-| 022 | Scheduler and processor: implementation and verification    | Accepted | Proposed by Claude |
-| 023 | Incidents and alerts: implementation                        | Accepted | Proposed by Claude |
-| 024 | Rate limiting, metrics and live events                      | Accepted | Proposed by Claude |
-| 025 | Dashboard and performance: decisions and results            | Accepted | Proposed by Claude |
-| 026 | Containers, Compose and CI                                  | Accepted | Proposed by Claude |
+| #   | Decision                                                    | Status   | Decided by       |
+| --- | ----------------------------------------------------------- | -------- | ---------------- |
+| 001 | Modular monolith with a separate worker process             | Accepted | Brief            |
+| 002 | Postgres-driven scheduler                                   | Accepted | Owner            |
+| 003 | Slot-based idempotency; check failures are not job failures | Accepted | Derived from 002 |
+| 004 | Access JWT + rotating refresh token in httpOnly cookies     | Accepted | Owner            |
+| 005 | Single indexed `check_results` table + retention job        | Accepted | Owner            |
+| 006 | Server-Sent Events fed by Redis pub/sub                     | Accepted | Owner            |
+| 007 | Row lock + partial unique index for incident transitions    | Accepted | Implementation   |
+| 008 | Transactional outbox for notifications                      | Accepted | Implementation   |
+| 009 | SSRF defence at connection time, not URL-parse time         | Accepted | Brief            |
+| 010 | No application cache until measurements justify one         | Accepted | Implementation   |
+| 011 | Uptime counts recorded checks only                          | Accepted | Implementation   |
+| 012 | Toolchain versions                                          | Accepted | Implementation   |
+| 013 | Pin every database session to UTC                           | Accepted | Forced by a bug  |
+| 014 | Hand-written SQL in migrations, guarded by a drift check    | Accepted | Implementation   |
+| 015 | Integration tests use a real PostgreSQL, never a mock       | Accepted | Brief            |
+| 016 | One Zod schema drives validation, serialisation and OpenAPI | Accepted | Implementation   |
+| 017 | Central error handler; unknown errors are hidden by default | Accepted | Brief            |
+| 018 | Separate liveness and readiness probes                      | Accepted | Implementation   |
+| 019 | Auth implementation: libraries, same-origin, known gaps     | Accepted | Implementation   |
+| 020 | Ownership in every query; auth before validation            | Accepted | Brief            |
+| 021 | Prober: pin the checked IP, time to headers, no body        | Accepted | Implementation   |
+| 022 | Scheduler and processor: implementation and verification    | Accepted | Implementation   |
+| 023 | Incidents and alerts: implementation                        | Accepted | Implementation   |
+| 024 | Rate limiting, metrics and live events                      | Accepted | Implementation   |
+| 025 | Dashboard and performance: decisions and results            | Accepted | Implementation   |
+| 026 | Containers, Compose and CI                                  | Accepted | Implementation   |
 
-"Proposed by Claude" entries were chosen without asking because they follow
+"Implementation" entries were chosen during the build because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
 
 ---
