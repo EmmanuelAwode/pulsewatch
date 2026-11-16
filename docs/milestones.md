@@ -1,5 +1,8 @@
 # Milestones
 
+> All six phases are built. The one item not done is deploying to a public
+> host; docs/deployment.md lists what that requires.
+
 Each milestone is small enough to build, test and explain in one sitting, and
 each ends with something that can be demonstrated. A milestone is only marked
 done when its checks have actually been run.
@@ -40,7 +43,7 @@ Progress: **all four milestones done** (2026-11-15).
 | 3.3 | Scheduler tick with `SKIP LOCKED` and deterministic job IDs    | Two concurrent schedulers claim disjoint sets; crash-before-commit test. |
 | 3.4 | Check processor: idempotent result write                       | Running the same job twice yields one row and one counter increment.     |
 
-## Phase 4: Reliability
+## Phase 4: Reliability (done)
 
 | #   | Milestone                                      | Done when                                                           |
 | --- | ---------------------------------------------- | ------------------------------------------------------------------- |
@@ -50,7 +53,7 @@ Progress: **all four milestones done** (2026-11-15).
 | 4.4 | Prometheus metrics, SSE event stream           | Metrics endpoint scraped in a test; SSE receives a published event. |
 | 4.5 | Analytics queries and retention job            | Results match hand-computed fixtures, including percentiles.        |
 
-## Phase 5: Frontend
+## Phase 5: Frontend (done)
 
 | #   | Milestone                                                   |
 | --- | ----------------------------------------------------------- |
@@ -60,7 +63,7 @@ Progress: **all four milestones done** (2026-11-15).
 | 5.4 | Dashboard overview, incident history, settings              |
 | 5.5 | Live updates, loading / empty / error states, mobile layout |
 
-## Phase 6: Testing and deployment
+## Phase 6: Testing and deployment (done, except a public deployment)
 
 | #   | Milestone                                                         |
 | --- | ----------------------------------------------------------------- |

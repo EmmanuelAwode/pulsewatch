@@ -1,8 +1,9 @@
 # PulseWatch Architecture
 
-> Status: **Phase 1 (design)**. Nothing in this document is implemented yet.
-> Each section says which phase builds it. The reasoning behind every choice,
-> with alternatives, is in [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md).
+> Status: **implemented** (all six phases). Written as the Phase 1 design and
+> kept accurate since; where the build differed from the design, the decision
+> log records why. The reasoning behind every choice, with alternatives, is in
+> [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md).
 
 ## 1. What the system does
 
@@ -243,7 +244,7 @@ Before any public deployment the worker must also be isolated at the
 **network** level (egress firewall denying private ranges). Application checks
 are one layer, not the only one. This is tracked for Phase 6.
 
-## 9. Repository layout (target)
+## 9. Repository layout
 
 ```
 pulsewatch/
@@ -254,9 +255,9 @@ pulsewatch/
   packages/
     database/   Prisma schema, migrations, client, test helpers
     shared/     Zod schemas, constants, shared types
-  docker/       Dockerfiles
-  docs/         database.md, api.md, milestones.md, schema.sql
-  load/         k6 scripts and recorded results (Phase 6)
+  docker/       Multi-stage Dockerfile, nginx config
+  docs/         database, API, deployment, milestones, screenshots
+  load/         k6 load test, data preparation, recorded results
   .github/workflows/
   docker-compose.yml
   ARCHITECTURE.md

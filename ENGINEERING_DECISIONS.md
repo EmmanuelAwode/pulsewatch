@@ -34,6 +34,8 @@ supersedes the old one and says why.
 | 022 | Scheduler and processor: implementation and verification    | Accepted | Proposed by Claude |
 | 023 | Incidents and alerts: implementation                        | Accepted | Proposed by Claude |
 | 024 | Rate limiting, metrics and live events                      | Accepted | Proposed by Claude |
+| 025 | Dashboard and performance: decisions and results            | Accepted | Proposed by Claude |
+| 026 | Containers, Compose and CI                                  | Accepted | Proposed by Claude |
 
 "Proposed by Claude" entries were chosen without asking because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
@@ -1012,3 +1014,113 @@ every failed dependency rather than the first.
 **Interview question.** _"How does rate limiting work with several API
 servers?"_ The counters are in Redis, shared by all of them, keyed by client
 IP. A test sends requests to two app instances and the limit still holds.
+
+---
+
+## ADR-025: Dashboard and performance: decisions and measured results
+
+**Frontend stack.** React with Vite, TanStack Query for server state, React
+Router, Tailwind CSS and Recharts. TanStack Query was added deliberately: the
+dashboard is almost entirely server state, and caching, refetching,
+pagination and loading/error states are exactly what it provides. There is no
+global client-state library because there is no meaningful client state.
+
+**Same origin, no CORS.** In development Vite proxies `/api` to the API; in
+production nginx does. Cookies stay first-party and CORS is never enabled.
+
+**Sessions in the browser.** The API client renews an expired access token
+once and retries. Concurrent requests share one in-flight refresh, and
+refreshes across tabs are serialised with the Web Locks API, because the
+server treats a refresh token used twice as stolen (ADR-004). Tests prove one
+refresh for many simultaneous 401s.
+
+**Live updates reconnect without wasting refreshes.** When the event stream
+is refused, the client asks `/auth/me` (which refreshes only if the session
+really expired) and backs off from 5 s to 60 s. The first version refreshed
+on every reconnect attempt, which would have rotated the refresh token every
+5 seconds while a user had too many tabs open.
+
+**Colour.** A palette validated with a colour-vision-deficiency and contrast
+checker in both light and dark mode. Dark mode is its own set of steps.
+Status never relies on colour alone (a different shape and a text label), the
+chart has a data-table view, and the dashed p95 line is distinguishable from
+the average line without colour.
+
+**Two chart details found by looking at real data:**
+
+- Lines are drawn without markers, so a measurement with empty buckets on
+  both sides was not drawn at all. A new monitor's chart looked empty while
+  it had data. Isolated points now get a dot.
+- At desktop width the monitor table truncated names to a few characters
+  while number columns took the space. Fixed column widths for the numbers.
+
+**Measured performance** (method, hardware and all three runs in
+[load/README.md](load/README.md)):
+
+| Finding                                 | Before                                                            | After                                                                   |
+| --------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Dashboard aggregation query, 1.7 M rows | 70 ms, parallel sequential scan                                   | 6.7 ms, index scan                                                      |
+| nginx under ~2,700 requests/s           | 81% of requests failed: no connection pool, local ports exhausted | Fixed with upstream `keepalive` + `resolve`                             |
+| Final run: 600 requests/s target, 75 s  |                                                                   | 40,798 requests, 0 failed; dashboard p95 13.8 ms, analytics p95 30.1 ms |
+
+The query fix replaced a join with `monitor_id = ANY($ids)`, which lets
+PostgreSQL use the composite index per monitor. The join made the planner
+scan every user's history.
+
+**Caching is still not built.** ADR-010 said to add cache-aside only when a
+measurement justified it. The first load test did show a problem, but the
+cause was a missing index path, not the lack of a cache, and fixing the query
+removed it. With p95 under 31 ms at the tested load, a cache would add stale
+data and a second source of truth for no measured benefit.
+
+**Interview question.** _"Tell me about a performance problem you found."_ A
+load test failed its latency target; EXPLAIN ANALYZE showed a sequential scan
+caused by the query's shape, not a missing index. Rewriting the predicate
+took it from 70 ms to 7 ms. The next run then failed differently, with nginx
+running out of ports, which taught me to check the infrastructure between
+the client and the code as well as the code.
+
+---
+
+## ADR-026: Containers, Compose and CI
+
+**One multi-stage Dockerfile, four targets.** Everything compiles once in a
+build stage; `pnpm deploy` then produces a self-contained folder per process
+with production dependencies only. The `api` and `worker` images run Node as
+the `node` user; `web` is the unprivileged nginx image. A `migrate` target
+runs `prisma migrate deploy` as a one-shot job before the API and worker
+start.
+
+**Image size.** The first API image was 739 MB. pnpm auto-installs peer
+dependencies, so `@prisma/client`'s optional peer pulled the whole Prisma
+CLI, TypeScript and Prisma Studio into production. Turning off
+`autoInstallPeers` (and declaring real peers explicitly) brought it to
+435 MB. Further savings (for example a distroless base) are possible but were
+not pursued.
+
+**nginx is the only public entry point.** It serves the static dashboard,
+proxies `/api/`, sets a strict Content-Security-Policy and other security
+headers, never routes `/docs`, `/metrics` or the probes, and overwrites
+`X-Forwarded-For` so the API can trust it for rate limiting.
+
+**Two bugs found only by running the containers:**
+
+- Compose passes an unset `SMTP_URL` as an empty string, which the worker
+  rejected as an invalid URL and refused to start. Empty optional settings
+  now mean "unset", with a test.
+- nginx resolved the API's address once at start-up; after the API container
+  was recreated, every request returned 502. The upstream now re-resolves
+  through Docker's DNS, and a check recreates the API container and calls it
+  through nginx again.
+
+**CI** (`.github/workflows/ci.yml`) runs, in order: typecheck, lint,
+formatting, unit tests, integration tests against real PostgreSQL and Redis
+(Testcontainers on the runner's Docker), and the production build. A second
+job applies every migration to an empty database and fails on schema drift.
+A third builds every image and fails if any runs as root. The workflow passes
+`actionlint`; it has not yet run on GitHub, because the repository has not
+been pushed anywhere.
+
+**Interview question.** _"How do you know your Docker setup works?"_ By
+running it: the full stack was started, called through nginx, restarted, and
+load-tested. Two bugs only appeared that way.

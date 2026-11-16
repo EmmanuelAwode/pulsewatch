@@ -1,8 +1,10 @@
-# API specification (design)
+# API overview
 
-> Status: **Phase 1 design.** Once the API exists (Phase 2) the OpenAPI
-> document generated from the route schemas, served at `/docs`, becomes the
-> authoritative reference and this file becomes an overview.
+> Status: **implemented.** The authoritative reference is the OpenAPI 3.1
+> document generated from the route schemas, served at `/docs` (interactive)
+> and `/docs/json` in development. This file explains the conventions and the
+> reasoning; it was written as the Phase 1 design and updated where the
+> implementation differs.
 
 Base path: `/api/v1`. JSON in, JSON out. All timestamps are ISO 8601 UTC.
 
@@ -94,7 +96,7 @@ resource-oriented.
 | GET    | `/monitors/:id/analytics`       | Query: `range=24h\|7d\|30d`. Totals, uptime %, avg / median / p95, `expectedChecks`, and a bucketed latency series for the chart. |
 | GET    | `/monitors/:id/incidents`       | Paginated incidents for one monitor.                                                                                              |
 | GET    | `/incidents`                    | Paginated incidents across all the caller's monitors. Query: `status=open\|resolved`.                                             |
-| GET    | `/dashboard/summary`            | Counts by status, open incidents, overall 24 h uptime.                                                                            |
+| GET    | `/dashboard`                    | Counts by status, open incidents, 24 h uptime and latency overall and per monitor.                                                |
 
 `range` is a fixed enum rather than arbitrary dates. That bounds the cost of
 the most expensive query in the system and makes its result cacheable under a
