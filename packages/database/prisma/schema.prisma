@@ -7,8 +7,8 @@
 // `pnpm db:check-drift` verifies this file and the migrations still agree.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
   // Emit `./x.js` import specifiers so the generated code compiles under
   // TypeScript's NodeNext module resolution like the rest of the repo.
   importFileExtension = "js"
@@ -198,21 +198,24 @@ model NotificationSettings {
 
 /// Transactional outbox and audit log for alerts (ADR-008).
 model NotificationDelivery {
-  id         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  incidentId String              @map("incident_id") @db.Uuid
-  event      NotificationEvent
-  channel    NotificationChannel
-  recipient  String
-  status     DeliveryStatus      @default(PENDING)
-  attempts   Int                 @default(0)
-  lastError  String?             @map("last_error")
-  sentAt     DateTime?           @map("sent_at") @db.Timestamptz(3)
-  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  incidentId    String              @map("incident_id") @db.Uuid
+  event         NotificationEvent
+  channel       NotificationChannel
+  recipient     String
+  status        DeliveryStatus      @default(PENDING)
+  attempts      Int                 @default(0)
+  lastError     String?             @map("last_error")
+  sentAt        DateTime?           @map("sent_at") @db.Timestamptz(3)
+  /// Earliest time the sender may (re)try. Moves forward with backoff after each failure.
+  nextAttemptAt DateTime            @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
 
   incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
   // One notification per incident, per event, per channel.
   @@unique([incidentId, event, channel])
-  // The sender's partial index (WHERE status = 'PENDING') is in the migration.
+  // The sender's partial index (on next_attempt_at WHERE status = 'PENDING')
+  // is in the migrations.
   @@map("notification_deliveries")
 }

@@ -49,7 +49,11 @@ const nameSchema = z
   .string()
   .trim()
   .min(1, "Name is required.")
-  .max(MONITOR_NAME_MAX_LENGTH, `Name must be at most ${MONITOR_NAME_MAX_LENGTH} characters.`);
+  .max(MONITOR_NAME_MAX_LENGTH, `Name must be at most ${MONITOR_NAME_MAX_LENGTH} characters.`)
+  // Names appear in alert email subjects and log lines. Line breaks and other
+  // control characters there enable header and log injection.
+  // eslint-disable-next-line no-control-regex
+  .refine((name) => !/[\u0000-\u001f\u007f]/.test(name), "Name must be a single line of text.");
 
 function boundedInt(bounds: { min: number; max: number }, unit: string) {
   return z

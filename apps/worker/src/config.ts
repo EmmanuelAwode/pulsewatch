@@ -1,4 +1,12 @@
+import { DEFAULT_RETENTION_DAYS } from "@pulsewatch/shared";
 import { z } from "zod";
+
+const wholeNumber = (min: number, max: number, unit: string) =>
+  z.coerce
+    .number({ error: `must be a whole number of ${unit}` })
+    .int()
+    .min(min)
+    .max(max);
 
 /** Every environment variable the worker reads. Validated once at start-up. */
 const envSchema = z.object({
@@ -9,24 +17,24 @@ const envSchema = z.object({
   REDIS_URL: z
     .string({ error: "is required" })
     .regex(/^rediss?:\/\//, "must be a redis:// or rediss:// connection string"),
-  WORKER_CONCURRENCY: z.coerce
-    .number({ error: "must be a whole number" })
-    .int()
-    .min(1)
-    .max(500)
-    .default(20),
-  SCHEDULER_TICK_MS: z.coerce
-    .number({ error: "must be a whole number of milliseconds" })
-    .int()
-    .min(100)
-    .max(60_000)
-    .default(1_000),
-  SCHEDULER_BATCH_SIZE: z.coerce
-    .number({ error: "must be a whole number" })
-    .int()
-    .min(1)
-    .max(5_000)
-    .default(500),
+  WORKER_CONCURRENCY: wholeNumber(1, 500, "checks").default(20),
+  SCHEDULER_TICK_MS: wholeNumber(100, 60_000, "milliseconds").default(1_000),
+  SCHEDULER_BATCH_SIZE: wholeNumber(1, 5_000, "monitors").default(500),
+  NOTIFICATION_SWEEP_MS: wholeNumber(1_000, 300_000, "milliseconds").default(15_000),
+  // Must cover the longest analytics range (30 days), or that view would
+  // silently show less data than it claims.
+  RETENTION_DAYS: wholeNumber(DEFAULT_RETENTION_DAYS, 3_650, "days").default(
+    DEFAULT_RETENTION_DAYS,
+  ),
+  // Optional. Without it, alert emails are written to the log instead.
+  SMTP_URL: z
+    .string()
+    .regex(/^smtps?:\/\//, "must be an smtp:// or smtps:// URL")
+    .optional(),
+  MAIL_FROM: z.string().min(3).default("PulseWatch <alerts@localhost>"),
+  // The metrics endpoint is internal; never expose it to the internet.
+  METRICS_HOST: z.string().min(1).default("127.0.0.1"),
+  METRICS_PORT: wholeNumber(1, 65_535, "port").default(9_100),
 });
 
 export interface WorkerConfig {
@@ -36,6 +44,12 @@ export interface WorkerConfig {
   concurrency: number;
   schedulerTickMs: number;
   schedulerBatchSize: number;
+  notificationSweepMs: number;
+  retentionDays: number;
+  smtpUrl: string | undefined;
+  mailFrom: string;
+  metricsHost: string;
+  metricsPort: number;
 }
 
 export class ConfigError extends Error {
@@ -61,5 +75,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): WorkerConfig {
     concurrency: values.WORKER_CONCURRENCY,
     schedulerTickMs: values.SCHEDULER_TICK_MS,
     schedulerBatchSize: values.SCHEDULER_BATCH_SIZE,
+    notificationSweepMs: values.NOTIFICATION_SWEEP_MS,
+    retentionDays: values.RETENTION_DAYS,
+    smtpUrl: values.SMTP_URL,
+    mailFrom: values.MAIL_FROM,
+    metricsHost: values.METRICS_HOST,
+    metricsPort: values.METRICS_PORT,
   };
 }
