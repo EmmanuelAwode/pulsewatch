@@ -3,7 +3,8 @@ import { ConfigError, loadConfig } from "../src/config.js";
 
 const DATABASE_URL = "postgresql://app:s3cret-value@db.internal:5432/pulsewatch";
 const JWT_ACCESS_SECRET = "a-test-secret-that-is-long-enough-0123456789";
-const REQUIRED = { DATABASE_URL, JWT_ACCESS_SECRET };
+const REDIS_URL = "redis://cache.internal:6379";
+const REQUIRED = { DATABASE_URL, REDIS_URL, JWT_ACCESS_SECRET };
 
 function problemsFor(env: NodeJS.ProcessEnv): readonly string[] {
   try {
@@ -23,6 +24,8 @@ describe("loadConfig", () => {
       port: 3000,
       logLevel: "info",
       databaseUrl: DATABASE_URL,
+      redisUrl: REDIS_URL,
+      trustProxy: false,
       docsEnabled: true,
       auth: {
         accessSecret: JWT_ACCESS_SECRET,
@@ -31,6 +34,7 @@ describe("loadConfig", () => {
         cookieSecure: false,
         appOrigin: "http://localhost:5173",
       },
+      rateLimit: { perMinute: 300, authPerMinute: 10, keyPrefix: "pulsewatch-rl:" },
     });
   });
 
@@ -39,7 +43,7 @@ describe("loadConfig", () => {
   });
 
   it("refuses a JWT secret that is too short to be safe", () => {
-    const problems = problemsFor({ DATABASE_URL, JWT_ACCESS_SECRET: "short-secret" });
+    const problems = problemsFor({ DATABASE_URL, REDIS_URL, JWT_ACCESS_SECRET: "short-secret" });
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^JWT_ACCESS_SECRET: must be at least 32 characters/);
@@ -65,7 +69,7 @@ describe("loadConfig", () => {
   });
 
   it("names the missing variable", () => {
-    expect(problemsFor({ JWT_ACCESS_SECRET })).toEqual(["DATABASE_URL: is required"]);
+    expect(problemsFor({ JWT_ACCESS_SECRET, REDIS_URL })).toEqual(["DATABASE_URL: is required"]);
   });
 
   it.each(["0", "70000", "abc", "80.5"])("rejects PORT=%s", (port) => {
@@ -76,7 +80,7 @@ describe("loadConfig", () => {
   });
 
   it("reports every problem at once rather than only the first", () => {
-    const problems = problemsFor({ JWT_ACCESS_SECRET, PORT: "abc", LOG_LEVEL: "loud" });
+    const problems = problemsFor({ JWT_ACCESS_SECRET, REDIS_URL, PORT: "abc", LOG_LEVEL: "loud" });
 
     expect(problems.map((problem) => problem.split(":")[0]).sort()).toEqual([
       "DATABASE_URL",
@@ -89,7 +93,7 @@ describe("loadConfig", () => {
     const secret = "mysql://root:hunter2@db.internal/app";
     let message = "";
     try {
-      loadConfig({ JWT_ACCESS_SECRET, DATABASE_URL: secret });
+      loadConfig({ JWT_ACCESS_SECRET, REDIS_URL, DATABASE_URL: secret });
     } catch (error) {
       message = (error as Error).message;
     }
@@ -97,5 +101,11 @@ describe("loadConfig", () => {
     expect(message).toContain("DATABASE_URL");
     expect(message).not.toContain("hunter2");
     expect(message).not.toContain("db.internal");
+  });
+
+  it("trusts X-Forwarded-For only when explicitly told to", () => {
+    expect(loadConfig(REQUIRED).trustProxy).toBe(false);
+    expect(loadConfig({ ...REQUIRED, TRUST_PROXY: "true" }).trustProxy).toBe(true);
+    expect(problemsFor({ ...REQUIRED, TRUST_PROXY: "yes" })[0]).toMatch(/^TRUST_PROXY: /);
   });
 });

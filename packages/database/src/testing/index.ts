@@ -109,3 +109,31 @@ async function applyMigrations(databaseUrl: string): Promise<void> {
     env: { ...process.env, DATABASE_URL: databaseUrl },
   });
 }
+
+export interface TestRedis {
+  url: string;
+  stop: () => Promise<void>;
+}
+
+/**
+ * Redis for an integration-test run: the server named by TEST_REDIS_URL, or
+ * a throwaway `redis:7-alpine` container. Tests give queues, channels and
+ * rate-limit keys unique names, so sharing one server between files is safe.
+ */
+export async function createTestRedis(): Promise<TestRedis> {
+  const existing = process.env["TEST_REDIS_URL"];
+  if (existing) return { url: existing, stop: () => Promise.resolve() };
+
+  const { GenericContainer, Wait } = await import("testcontainers");
+  const container = await new GenericContainer("redis:7-alpine")
+    .withExposedPorts(6379)
+    .withCommand(["redis-server", "--maxmemory-policy", "noeviction"])
+    .withWaitStrategy(Wait.forLogMessage("Ready to accept connections"))
+    .start();
+  return {
+    url: `redis://${container.getHost()}:${container.getMappedPort(6379)}`,
+    stop: async () => {
+      await container.stop();
+    },
+  };
+}

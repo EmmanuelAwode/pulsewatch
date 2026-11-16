@@ -32,6 +32,8 @@ supersedes the old one and says why.
 | 020 | Ownership in every query; auth before validation            | Accepted | Brief              |
 | 021 | Prober: pin the checked IP, time to headers, no body        | Accepted | Proposed by Claude |
 | 022 | Scheduler and processor: implementation and verification    | Accepted | Proposed by Claude |
+| 023 | Incidents and alerts: implementation                        | Accepted | Proposed by Claude |
+| 024 | Rate limiting, metrics and live events                      | Accepted | Proposed by Claude |
 
 "Proposed by Claude" entries were chosen without asking because they follow
 from earlier decisions or are low-risk to reverse. Any of them can be reopened.
@@ -922,3 +924,91 @@ the API does not use Redis until rate limiting arrives.
 Passing tests were not enough. I removed each lock and constraint in turn;
 two removals went unnoticed, which showed two guarantees were untested, so I
 wrote tests that fail without them.
+
+---
+
+## ADR-023: Incidents and alerts: implementation
+
+This records how ADR-007 and ADR-008 were built.
+
+**State machine as a pure function.** `applyCheck(state, thresholds, success)`
+in `apps/worker/src/checks/state-machine.ts` holds every rule (PENDING to UP on
+the first success, DOWN on the third consecutive failure, UP again on the
+second consecutive success). It has no database or clock, so each rule is a
+one-line unit test. The processor calls it inside the transaction that stores
+the result, under the monitor row lock.
+
+**Incident timestamps are back-dated to the streak.** An incident starts at
+the first failure of the streak that crossed the threshold, and resolves at
+the first success of the recovery streak, both found with an index-backed
+query. Using the threshold-crossing check would make every outage look two
+minutes shorter than it was.
+
+**Alerts go only to the account's own email.** Addresses are not verified in
+this version. Allowing an arbitrary recipient would let anyone point a
+flapping monitor at a stranger's inbox. Email is also opt-in (off by default).
+
+**The sender holds a row lock during the SMTP call.** That is what stops two
+worker processes sending the same email (`FOR UPDATE SKIP LOCKED`). It is the
+opposite of the rule used for checks, where the network call happens outside
+the transaction, and the difference is deliberate: checks are frequent and
+concurrent, alerts are rare and one-at-a-time, so a briefly held connection
+costs nothing here. Failures retry after 1, 2, 4, 8 minutes, then the
+delivery is marked `FAILED` (a second migration added `next_attempt_at`).
+
+**Delivery is at-least-once.** If SMTP accepts a message and the process dies
+before committing, the email is sent again. Email has no idempotency key.
+
+**Monitor names are single-line.** Found while designing the email subject:
+names could contain newlines, which reach email headers and log lines.
+Nodemailer encodes headers safely, but the validation now rejects control
+characters at the API anyway.
+
+**Retention.** An hourly job deletes check results older than
+`RETENTION_DAYS` (minimum 30, the longest analytics range) in batches of
+5,000, and removes expired or long-revoked refresh tokens.
+
+**Interview question.** _"How do you avoid alerting on a blip?"_ Hysteresis:
+three consecutive failures to declare an outage, two consecutive successes to
+end it, with tests for a flapping endpoint that never crosses either line.
+
+---
+
+## ADR-024: Rate limiting, metrics and live events: implementation
+
+**Rate limits live in Redis.** Per-process counters would multiply the limit
+by the number of API instances. The general limit is 300 requests per minute
+per IP; login and registration share a separate limit of 10.
+
+**A bug the tests found: protected routes were not limited at all.** With
+the plugin in its default "global" mode, it attaches its check after each
+route's own hooks. The authentication guard ran first and rejected requests
+without a session before they were counted, so anyone without a session
+could call protected endpoints without limit. The plugin also runs at most
+one limiter per request. The fix is a single app-level `onRequest` hook,
+which runs before any route hook, choosing the strict or general limiter per
+route, each with its own Redis key.
+
+**The limiter fails open.** If Redis is down, requests are allowed rather
+than refused (`skipOnError`). A failing limiter should not take the whole API
+down; the cost is that limits are not enforced during a Redis outage.
+
+**`X-Forwarded-For` is ignored unless `TRUST_PROXY=true`.** Otherwise a client
+sets the header to a new value per request and is never limited. A test
+proves the spoofed header has no effect.
+
+**Metrics label by route pattern.** `/api/v1/monitors/:id`, never the raw
+URL: one time series per monitor ID would grow without bound. `/metrics` is
+excluded from the API documentation and must not be routed publicly.
+
+**Live events.** The worker publishes after commit; each API instance holds
+one Redis subscription and an in-memory map of its own connections, capped at
+5 streams per user. A test proves a user receives their events and not
+another user's.
+
+**Readiness now checks Redis as well as Postgres**, in parallel, reporting
+every failed dependency rather than the first.
+
+**Interview question.** _"How does rate limiting work with several API
+servers?"_ The counters are in Redis, shared by all of them, keyed by client
+IP. A test sends requests to two app instances and the limit still holds.

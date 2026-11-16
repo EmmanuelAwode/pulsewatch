@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@pulsewatch/database";
+import type { Redis } from "ioredis";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { serviceUnavailable } from "../errors.js";
@@ -9,6 +10,7 @@ const READINESS_TIMEOUT_MS = 2_000;
 
 interface HealthRouteOptions {
   db: PrismaClient;
+  redis: Redis;
 }
 
 /** Rejects if `work` has not settled within `ms`. The timer never keeps the process alive. */
@@ -41,10 +43,15 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
  * orchestrator restart every API container at once and turn a partial outage
  * into a total one.
  */
-export const healthRoutes: FastifyPluginAsyncZod<HealthRouteOptions> = async (app, { db }) => {
+export const healthRoutes: FastifyPluginAsyncZod<HealthRouteOptions> = async (
+  app,
+  { db, redis },
+) => {
   app.get(
     "/healthz",
     {
+      // Probes run every few seconds from inside the network; never limit them.
+      config: { rateLimit: false },
       schema: {
         tags: ["operations"],
         summary: "Liveness probe",
@@ -57,6 +64,7 @@ export const healthRoutes: FastifyPluginAsyncZod<HealthRouteOptions> = async (ap
   app.get(
     "/readyz",
     {
+      config: { rateLimit: false },
       schema: {
         tags: ["operations"],
         summary: "Readiness probe",
@@ -64,7 +72,7 @@ export const healthRoutes: FastifyPluginAsyncZod<HealthRouteOptions> = async (ap
           200: dataEnvelope(
             z.object({
               status: z.literal("ready"),
-              checks: z.object({ database: z.literal("ok") }),
+              checks: z.object({ database: z.literal("ok"), redis: z.literal("ok") }),
             }),
           ),
           503: errorResponseSchema,
@@ -72,17 +80,33 @@ export const healthRoutes: FastifyPluginAsyncZod<HealthRouteOptions> = async (ap
       },
     },
     async (request) => {
-      try {
-        await withTimeout(db.$queryRaw`SELECT 1`, READINESS_TIMEOUT_MS);
-      } catch (error) {
-        // The cause goes to the log. The response only names which dependency
+      // Both dependencies are checked in parallel, each with its own timeout,
+      // and every failure is reported, not just the first.
+      const probes = {
+        database: () => db.$queryRaw`SELECT 1`,
+        redis: () => redis.ping(),
+      };
+      const results = await Promise.allSettled(
+        Object.values(probes).map((probe) => withTimeout(probe(), READINESS_TIMEOUT_MS)),
+      );
+      const failed = Object.keys(probes).filter(
+        (_, index) => results[index]?.status === "rejected",
+      );
+      if (failed.length > 0) {
+        // The causes go to the log. The response only names which dependency
         // failed, because driver errors can contain hostnames and credentials.
-        request.log.warn({ err: error }, "readiness check failed: database");
-        throw serviceUnavailable("The service is not ready.", [
-          { path: "database", message: "unreachable" },
-        ]);
+        request.log.warn({ failed }, "readiness check failed");
+        throw serviceUnavailable(
+          "The service is not ready.",
+          failed.map((name) => ({ path: name, message: "unreachable" })),
+        );
       }
-      return { data: { status: "ready" as const, checks: { database: "ok" as const } } };
+      return {
+        data: {
+          status: "ready" as const,
+          checks: { database: "ok" as const, redis: "ok" as const },
+        },
+      };
     },
   );
 

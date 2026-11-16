@@ -45,6 +45,9 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRouteOptions> = async (app, o
   app.post(
     "/register",
     {
+      // Much tighter than the global limit: these are the endpoints a password
+      // guesser or a sign-up spammer would hammer.
+      config: { rateLimitTier: "auth" },
       schema: {
         tags: TAGS,
         summary: "Create an account and start a session",
@@ -62,6 +65,9 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRouteOptions> = async (app, o
   app.post(
     "/login",
     {
+      // Much tighter than the global limit: these are the endpoints a password
+      // guesser or a sign-up spammer would hammer.
+      config: { rateLimitTier: "auth" },
       schema: {
         tags: TAGS,
         summary: "Start a session",

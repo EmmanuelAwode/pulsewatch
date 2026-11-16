@@ -87,7 +87,9 @@ describe("health", () => {
     const response = await app.inject({ method: "GET", url: "/readyz" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ data: { status: "ready", checks: { database: "ok" } } });
+    expect(response.json()).toEqual({
+      data: { status: "ready", checks: { database: "ok", redis: "ok" } },
+    });
   });
 
   it("GET /readyz returns 503 when the database is unreachable, without leaking why", async () => {
