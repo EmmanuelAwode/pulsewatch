@@ -15,6 +15,35 @@ type Range = "24h" | "7d" | "30d";
 
 const AXIS_TICK = { fill: "var(--muted)", fontSize: 12 };
 
+type SeriesKey = "avgResponseMs" | "p95ResponseMs";
+
+/**
+ * A dot only where a point has no neighbour on either side. Lines are drawn
+ * without markers, so an isolated measurement (data in one bucket, gaps
+ * around it) would otherwise not be drawn at all, and real data would look
+ * like no data. Found when a new monitor's chart appeared empty.
+ */
+function isolatedDot(series: SeriesPoint[], key: SeriesKey, color: string) {
+  return function IsolatedDot(props: { cx?: number; cy?: number; index?: number }) {
+    const { cx, cy, index } = props;
+    if (cx === undefined || cy === undefined || index === undefined) return <g />;
+    const before = series[index - 1]?.[key] ?? null;
+    const after = series[index + 1]?.[key] ?? null;
+    if (before !== null || after !== null) return <g key={index} />;
+    return (
+      <circle
+        key={index}
+        cx={cx}
+        cy={cy}
+        r={3}
+        fill={color}
+        stroke="var(--surface)"
+        strokeWidth={1}
+      />
+    );
+  };
+}
+
 interface TooltipProps {
   active?: boolean;
   payload?: readonly { payload?: SeriesPoint }[];
@@ -92,7 +121,7 @@ export function LatencyChart({ series, range }: { series: SeriesPoint[]; range: 
                 name="Average"
                 stroke="var(--series-1)"
                 strokeWidth={2}
-                dot={false}
+                dot={isolatedDot(series, "avgResponseMs", "var(--series-1)")}
                 activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }}
                 connectNulls={false}
                 isAnimationActive={false}
@@ -104,7 +133,7 @@ export function LatencyChart({ series, range }: { series: SeriesPoint[]; range: 
                 stroke="var(--series-2)"
                 strokeWidth={2}
                 strokeDasharray="5 4"
-                dot={false}
+                dot={isolatedDot(series, "p95ResponseMs", "var(--series-2)")}
                 activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2 }}
                 connectNulls={false}
                 isAnimationActive={false}

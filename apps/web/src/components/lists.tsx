@@ -15,14 +15,20 @@ import { cx, StatusBadge } from "./ui";
 export function MonitorTable({ monitors }: { monitors: DashboardMonitor[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
+      <table className="w-full table-fixed text-left text-sm">
         <thead className="text-xs text-ink-2">
           <tr className="border-b border-line">
             <th className="px-4 py-2 font-medium">Monitor</th>
-            <th className="px-4 py-2 font-medium">Status</th>
-            <th className="hidden px-4 py-2 text-right font-medium sm:table-cell">Uptime 24h</th>
-            <th className="hidden px-4 py-2 text-right font-medium sm:table-cell">Avg response</th>
-            <th className="hidden px-4 py-2 text-right font-medium md:table-cell">Last check</th>
+            <th className="w-28 px-4 py-2 font-medium">Status</th>
+            <th className="hidden w-28 px-4 py-2 text-right font-medium sm:table-cell">
+              Uptime 24h
+            </th>
+            <th className="hidden w-32 px-4 py-2 text-right font-medium sm:table-cell">
+              Avg response
+            </th>
+            <th className="hidden w-28 px-4 py-2 text-right font-medium md:table-cell">
+              Last check
+            </th>
           </tr>
         </thead>
         <tbody>

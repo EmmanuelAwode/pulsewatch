@@ -1,7 +1,7 @@
 import type { LiveEvent } from "@pulsewatch/shared";
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { API_BASE, refreshSession } from "../api/client";
+import { api, API_BASE } from "../api/client";
 import { keys } from "../api/hooks";
 
 export type LiveState = "connecting" | "live" | "offline";
@@ -38,6 +38,7 @@ export function useLiveUpdates(): LiveState {
     let source: EventSource | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
+    let failures = 0;
     const pending = new Map<string, QueryKey>();
 
     const flush = setInterval(() => {
@@ -48,6 +49,7 @@ export function useLiveUpdates(): LiveState {
     function connect() {
       source = new EventSource(`${API_BASE}/events`);
       source.onopen = () => {
+        failures = 0;
         setState("live");
       };
       for (const type of EVENT_TYPES) {
@@ -59,15 +61,23 @@ export function useLiveUpdates(): LiveState {
       source.onerror = () => {
         setState("offline");
         // EventSource retries by itself after a dropped connection, but gives
-        // up for good after an error response such as 401 (expired access
-        // token). In that case renew the session and open a new stream.
+        // up for good after an error response: 401 (access token expired) or
+        // 429 (too many open streams, e.g. many tabs). It cannot tell which,
+        // so ask the API: GET /auth/me renews the session only if it really
+        // has expired. Refreshing unconditionally would rotate the refresh
+        // token on every attempt. Retries back off from 5 s to 60 s.
         if (source?.readyState === EventSource.CLOSED && !stopped) {
           source.close();
+          failures += 1;
+          const delay = Math.min(60_000, 5_000 * 2 ** (failures - 1));
           reconnectTimer = setTimeout(() => {
-            void refreshSession().then(() => {
-              if (!stopped) connect();
-            });
-          }, 5_000);
+            api
+              .get("/auth/me")
+              .catch(() => undefined)
+              .finally(() => {
+                if (!stopped) connect();
+              });
+          }, delay);
         }
       };
     }
