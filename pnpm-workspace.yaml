@@ -13,3 +13,9 @@ onlyBuiltDependencies:
 ignoredBuiltDependencies:
   - cpu-features
   - ssh2
+
+# Peer dependencies are declared explicitly rather than installed
+# automatically. Auto-installing pulled optional peers into production
+# images, e.g. @prisma/client brought in the whole Prisma CLI, TypeScript and
+# Prisma Studio, more than doubling the API image size.
+autoInstallPeers: false

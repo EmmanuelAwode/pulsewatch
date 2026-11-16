@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch cancels the run already in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Formatting
+        run: pnpm format:check
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      # Integration tests start real PostgreSQL and Redis containers with
+      # Testcontainers, using the Docker engine on the runner.
+      - name: Integration tests
+        run: pnpm test:integration
+
+      - name: Production build
+        run: pnpm build
+
+  migrations:
+    name: Migrations apply cleanly and match the schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: pulsewatch
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci -d pulsewatch"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/pulsewatch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Apply every migration to an empty database
+        run: pnpm db:migrate:deploy
+      # Fails if schema.prisma and the migrations have drifted apart (ADR-014).
+      - name: Check for schema drift
+        run: pnpm db:check-drift
+
+  images:
+    name: Container images build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build every image target
+        run: |
+          for target in api worker web migrate; do
+            docker buildx build --file docker/Dockerfile --target "$target" \
+              --tag "pulsewatch-$target:ci" --load .
+          done
+      - name: Images run as a non-root user
+        run: |
+          for target in api worker web; do
+            user=$(docker image inspect "pulsewatch-$target:ci" --format '{{.Config.User}}')
+            echo "$target runs as: ${user:-root}"
+            test -n "$user" && test "$user" != "root" && test "$user" != "0"
+          done

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const wholeNumber = (min: number, max: number, unit: string) =>
   z.coerce
-    .number({ error: `must be a whole number of ${unit}` })
+    .number({ error: `must be a whole number of ${unit} from ${String(min)} to ${String(max)}` })
     .int()
     .min(min)
     .max(max);
@@ -27,10 +27,15 @@ const envSchema = z.object({
     DEFAULT_RETENTION_DAYS,
   ),
   // Optional. Without it, alert emails are written to the log instead.
-  SMTP_URL: z
-    .string()
-    .regex(/^smtps?:\/\//, "must be an smtp:// or smtps:// URL")
-    .optional(),
+  SMTP_URL: z.preprocess(
+    // An empty value means "not set": Compose and .env files commonly pass
+    // SMTP_URL= rather than omitting the variable.
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^smtps?:\/\//, "must be an smtp:// or smtps:// URL")
+      .optional(),
+  ),
   MAIL_FROM: z.string().min(3).default("PulseWatch <alerts@localhost>"),
   // The metrics endpoint is internal; never expose it to the internet.
   METRICS_HOST: z.string().min(1).default("127.0.0.1"),

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const wholeNumber = (min: number, max: number, unit: string) =>
   z.coerce
-    .number({ error: `must be a whole number of ${unit}` })
+    .number({ error: `must be a whole number of ${unit} from ${String(min)} to ${String(max)}` })
     .int()
     .min(min)
     .max(max);

@@ -35,6 +35,11 @@ export default tseslint.config(
     },
   },
   {
+    // k6 scripts run in k6's JavaScript runtime, which provides these globals.
+    files: ["load/**/*.js"],
+    languageOptions: { globals: { __ENV: "readonly", __VU: "readonly", __ITER: "readonly" } },
+  },
+  {
     // Plain JS config files belong to no tsconfig project, so type-aware
     // rules cannot run on them.
     files: ["**/*.js"],

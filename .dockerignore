@@ -1,0 +1,11 @@
+# Keep the build context small and free of secrets and host artefacts.
+**/node_modules
+**/dist
+**/coverage
+**/src/generated
+.git
+.claude
+.env
+.env.*
+!.env.example
+*.log

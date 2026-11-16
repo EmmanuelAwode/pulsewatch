@@ -282,26 +282,36 @@ export function createHistoryService(options: {
       const to = now();
       const from = new Date(to.getTime() - 24 * 3_600_000);
 
-      // One grouped query for every monitor's last 24 hours. The per-user cap
-      // bounds this at 50 monitors x 1,440 rows.
-      const stats = await db.$queryRaw<
-        { id: string; checks: number; successful: number; avg: number | null }[]
-      >`
-        SELECT m.id,
-               count(c.id)::int AS checks,
-               count(c.id) FILTER (WHERE c.success)::int AS successful,
-               avg(c.response_time_ms) FILTER (WHERE c.success)::float8 AS avg
-        FROM monitors m
-        LEFT JOIN check_results c
-          ON c.monitor_id = m.id AND c.scheduled_for >= ${from} AND c.scheduled_for < ${to}
-        WHERE m.user_id = ${userId}::uuid
-        GROUP BY m.id`;
-      const statsById = new Map(stats.map((row) => [row.id, row]));
-
       const monitors = await db.monitor.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
       });
+
+      // One grouped query for every monitor's last 24 hours (the per-user cap
+      // bounds this at 50 monitors x 1,440 rows).
+      //
+      // It filters on monitor_id = ANY(ids) rather than joining monitors to
+      // check_results. With the join, PostgreSQL chose a parallel sequential
+      // scan of the whole table: 70 ms at 1.7 million rows, and growing with
+      // every user's history. A list of IDs lets it use the
+      // (monitor_id, scheduled_for) index for each monitor instead. Found
+      // with EXPLAIN ANALYZE after a load test (ADR-025).
+      const stats =
+        monitors.length === 0
+          ? []
+          : await db.$queryRaw<
+              { id: string; checks: number; successful: number; avg: number | null }[]
+            >`
+              SELECT monitor_id AS id,
+                     count(*)::int AS checks,
+                     count(*) FILTER (WHERE success)::int AS successful,
+                     avg(response_time_ms) FILTER (WHERE success)::float8 AS avg
+              FROM check_results
+              WHERE monitor_id = ANY(${monitors.map((monitor) => monitor.id)}::uuid[])
+                AND scheduled_for >= ${from} AND scheduled_for < ${to}
+              GROUP BY monitor_id`;
+      const statsById = new Map(stats.map((row) => [row.id, row]));
+
       const openIncidents = await db.incident.count({
         where: { resolvedAt: null, monitor: { userId } },
       });

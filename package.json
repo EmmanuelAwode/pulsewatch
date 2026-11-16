@@ -16,6 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "pnpm build:packages && pnpm -r run test",
+    "test:unit": "pnpm build:packages && pnpm --filter @pulsewatch/shared --filter @pulsewatch/web run test",
+    "test:integration": "pnpm build:packages && pnpm --filter @pulsewatch/database --filter @pulsewatch/api --filter @pulsewatch/worker run test",
     "dev:api": "pnpm build:packages && pnpm --filter @pulsewatch/api run dev",
     "dev:worker": "pnpm build:packages && pnpm --filter @pulsewatch/worker run dev",
     "dev:web": "pnpm build:packages && pnpm --filter @pulsewatch/web run dev",
